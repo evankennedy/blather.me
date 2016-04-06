@@ -6,7 +6,34 @@ requirejs.config({
 	}
 });
 
-var onerror = console.error.bind(console);
+var output = document.getElementById('output');
+var log = function() {
+	console.log.apply(console, arguments);
+	
+	var now = new Date();
+	var time = [
+		('0' + now.getHours()).substr(-2),
+		('0' + now.getMinutes()).substr(-2),
+		('0' + now.getSeconds()).substr(-2)
+	].join(':');
+	
+	var args = Array.from(arguments).map(function(value) {
+		if(typeof value == 'object') {
+			return JSON.stringify(value);
+		} else {
+			return String(value);
+		}
+	});
+	
+	args.unshift(time);
+	
+	var text = document.createTextNode(args.join(' ') + '\n');
+	if(output.firstChild) {
+		output.insertBefore(text, output.firstChild);
+	} else {
+		output.appendChild(text);
+	}
+};
 var peers = {};
 var config = {
 	iceServers: [
@@ -23,7 +50,6 @@ requirejs(['lib/adapter', 'lib/mqttws31'], function(adapter, Paho) {
 		xhr.onreadystatechange = function() {
 			if(xhr.readyState == 4 && xhr.status == 200) {
 				var endpoint = JSON.parse(xhr.responseText);
-				console.log(endpoint);
 				var id = (Date.now() + Math.random()).toString(36);
 				window.client = new Paho.MQTT.Client(endpoint, id);
 				client.connect({
@@ -32,13 +58,16 @@ requirejs(['lib/adapter', 'lib/mqttws31'], function(adapter, Paho) {
 					keepAliveInterval: 30,
 					mqttVersion:4,
 					onSuccess: function() {
-						console.log('connected', id);
+						log('connected');
+						log('id set to', id);
 						
 						client.subscribe('user/' + id, {
 							onSuccess: function() {
-								client.subscribe('room/test', {
+								log('subscribed to', 'user/' + id);
+								
+								client.subscribe('channel/test-channel', {
 									onSuccess: function() {
-										console.log('subscribed to', ['user/' + id, 'room/test']);
+										log('subscribed to', 'channel/test-channel');
 										
 										client.onMessageArrived = function(message) {
 											message = JSON.parse(message.payloadString);
@@ -63,6 +92,7 @@ requirejs(['lib/adapter', 'lib/mqttws31'], function(adapter, Paho) {
 												};
 
 												peer.onaddstream = function(event) {
+													log('received audio stream');
 													var audio = new Audio(window.URL.createObjectURL(event.stream));
 													audio.play();
 												};
@@ -71,43 +101,43 @@ requirejs(['lib/adapter', 'lib/mqttws31'], function(adapter, Paho) {
 											}
 
 											if(message.sdp) {
-												console.log(new Date().getSeconds(), 'setRemoteDescription');
+												log('setRemoteDescription');
 												peer.setRemoteDescription(new RTCSessionDescription(message.sdp));
 											}
 
 											if(message.ice) {
-												console.log(new Date().getSeconds(), 'addIceCandidate');
+												console.log('addIceCandidate');
 												peer.addIceCandidate(new RTCIceCandidate(message.ice));
 											}
 
 											if(message.readyForOffer) {
-												console.log(new Date().getSeconds(), 'createOffer');
+												log('createOffer');
 												peer.createOffer(function(desc) {
-													console.log(new Date().getSeconds(), 'setLocalDescription');
+													log('setLocalDescription');
 													peer.setLocalDescription(desc);
 													client.send('user/' + message.from, JSON.stringify({
 														from: id,
 														sdp: desc,
 														readyForAnswer: true
 													}));
-												}, onerror);
+												}, log);
 											}
 
 											if(message.readyForAnswer) {
-												console.log(new Date().getSeconds(), 'createAnswer');
+												log('createAnswer');
 												peer.createAnswer(function(desc) {
-													console.log(new Date().getSeconds(), 'setLocalDescription');
+													log('setLocalDescription');
 													peer.setLocalDescription(desc);
 													client.send('user/' + message.from, JSON.stringify({
 														from: id,
 														sdp: desc
 													}));
-												}, onerror);
+												}, log);
 											}
 										};
 
 										// Tell connected clients to send us offers
-										client.send('room/test', JSON.stringify({
+										client.send('channel/test-channel', JSON.stringify({
 											readyForOffer: true,
 											from: id
 										}));
@@ -117,12 +147,12 @@ requirejs(['lib/adapter', 'lib/mqttws31'], function(adapter, Paho) {
 						});
 					},
 					onFailure: function() {
-						console.error('could not connect');
+						error('could not connect');
 					}
 				});
 			}
 		};
 		
 		xhr.send();
-	}, onerror);
+	}, log);
 });
